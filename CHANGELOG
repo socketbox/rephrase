@@ -1,0 +1,51 @@
+---  Rephrase 0.2  ---
+
+add support for recovering passphrases of files encrypted using
+'gpg --symmetric'
+
+add support for recovering passphrases of LUKS encrypted volume
+
+add some static (in the sense: "this declaration is only visible in this
+compilation unit") modifiers
+
+pass more sensible strings to perror()
+
+fclose() the file pointer to /dev/tty when we've finished using it
+
+fix for platforms where sizeof(int) > 8:
+avoid stringifying an `int' into a buffer only large enough for up to
+64-bit `int's (otherwise, longer strings would be truncated, causing
+(possibly intermittent) failures to find a passphrase)
+
+drop any setgid privileges we may have (rephrase shouldn't be setgid,
+but it could be if `binmode' were set to a silly value when installing)
+
+when spawning gpg, use --no-tty as well as --batch (just in case this is
+necessary to ensure that output is never written to the terminal)
+
+rename the BINDIR variable (which can be overridden in a `make install'
+command) to bindir (to follow GNU standards)
+
+also honour the standard DESTDIR variable (in case that's set when
+installing)
+
+instead of putting -D options directly in CFLAGS, put them in a DEFS
+variable, and include that variable in CPPFLAGS (not in CFLAGS)
+
+avoid operator scope issues with `PATTERN_MAX':
+when `PATTERN_MAX' is specified in DEFS, put brackets around its
+(user-supplied) value, so that expressions such as `PATTERN_MAX + 1'
+will not be misinterpreted if the value supplied for `PATTERN_MAX' is
+something silly like `1 << 10'
+
+make install: use `mkinstalldirs' and `install-sh' scripts (instead of
+using `mkdir', `rm', `cp' and `chmod' directly); and allow overriding of
+`dirmode', `binowner', `bingroup', and `binmode'
+
+declare phony Makefile targets to be `.PHONY'
+
+updates and fixes for the README
+
+change license from GPL 2 to GPL 3
+
+---  Rephrase 0.1  ---
