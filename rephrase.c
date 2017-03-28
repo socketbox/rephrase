@@ -27,6 +27,7 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include <limits.h>
 
 #define PROGRAM "rephrase"
 #ifndef VERSION
@@ -49,7 +50,8 @@
 #ifndef ARGS_MAX
 #define ARGS_MAX 100
 #endif
-
+ 
+      
 static const char LF = '\n';
 
 struct profile {
@@ -60,6 +62,14 @@ struct profile {
   int bad_passphrase_status;
 };
 
+/*
+ * note: if --wl (logging) option is enabled, we should change profile for
+ * gpg-key to something like:
+ *
+ * gpg --default-key D4E38DA7 --passphrase --batch --no-tty --dry-run
+ * --clearsign /dev/null
+ *
+ */
 struct profile profiles[] = {
   {
     "--gpg-key",
@@ -97,6 +107,9 @@ struct configuration {
   short write_linefeed;
   int good_passphrase_status;
   int bad_passphrase_status;
+  int opt_tries_val;
+  int opt_showpatt_val;
+  int opt_log_val;
 };
 
 struct secrets {
@@ -293,7 +306,10 @@ write_passphrase (struct secrets *s, short write_linefeed, int pass_writer)
       }
     }
   }
-  if (write_linefeed != 0) {
+  if (write_linefeed != 0) 
+  {
+    //TODO: rewrite func to take config struct as parm and then use the line
+    //below to write to log if --wl is enabled
     while (!(s->io_count = write (pass_writer, &LF, 1))) {
       sleep (1);
     }
@@ -342,36 +358,61 @@ static int
 find_passphrase (struct configuration *c, struct secrets *s)
 {
   int dev_null;
-
+  //chb: counter for attempts 
+  int tries = 0;
+  
   if ((dev_null = open ("/dev/null", O_RDWR)) == -1) {
     perror ("open");
     exit (15);
   }
 
-  do {
-    if (passphrase_is_correct (c, s, dev_null)) {
+  do 
+  {
+    if (passphrase_is_correct (c, s, dev_null)) 
+    {
       fprintf (stderr, "Passphrase found\n");
       for (s->b = 0; s->b < s->a; ++s->b) {
         printf (s->b ? " %d" : "%d", s->try[s->b] + 1);
       }
       printf ("\n");
+      if(c->opt_tries_val)
+      {
+        tries++; 
+        printf("Tries: %d\n", tries);
+      }
       return (0);
     }
 
     s->error = 1;
-    for (s->b = s->a - 1; s->b >= 0; --s->b) {
-      if (s->try[s->b] < s->alternatives[s->b]) {
+    for (s->b = s->a - 1; s->b >= 0; --s->b) 
+    {
+      if(c->opt_tries_val)
+      {
+        tries++; 
+      }
+      if (s->try[s->b] < s->alternatives[s->b]) 
+      {
         ++s->try[s->b];
-        for (s->i = s->b + 1; s->i < s->a; ++s->i) {
+        if(c->opt_tries_val) { tries++; }  
+        for (s->i = s->b + 1; s->i < s->a; ++s->i) 
+        {
           s->try[s->i] = 0;
+        if(c->opt_tries_val) { tries++; }  
         }
         s->error = 0;
         break;
       }
     }
-  } while (!s->error);
+  } 
+  while (!s->error);
 
   fprintf (stderr, "Passphrase doesn't match pattern (or no such key/file/device)\n");
+  
+  if (c->opt_tries_val) 
+  { 
+    printf("Tries: %d\n", tries);
+  }
+
   return (1);
 }
 
@@ -381,8 +422,17 @@ main (int argc, char **argv)
   struct secrets sec;
   struct configuration conf;
   struct stat stat_buf;
-  int p, c;
+  int profile_idx = -5;
+  int c;
+  int debug = 1;
   char *param;
+  //option strings and flags
+  int opt_log_val = 0;
+  int opt_showpatt_val = 0;
+  int opt_tries_val = 0;
+  char *opt_showpatt_str = "--sp";
+  char *opt_log_str = "--wg";
+  char *opt_tries_str = "--ct";
 
   fprintf (stderr, "%s (Rephrase) %s\nCopyright (C) 2003, 2014  Phil Lanch\n"
       "This program comes with ABSOLUTELY NO WARRANTY.\n"
@@ -390,65 +440,98 @@ main (int argc, char **argv)
       "under certain conditions.  See the file COPYING for details.\n\n",
       PROGRAM, VERSION);
 
-  if (mlock (&sec, sizeof (struct secrets))) {
+  if (mlock (&sec, sizeof (struct secrets))) 
+  {
     perror ("mlock");
     fprintf (stderr, "(%s should be installed setuid root)\n", PROGRAM);
-    exit (2);
-  }
-  if (setreuid (getuid (), getuid ())) {
+  } 
+  
+  if (setreuid (getuid (), getuid ())) 
+  {
     perror ("setreuid");
     exit (3);
   }
+ 
   /* rephrase shouldn't have the setgid bit set.  just in case it was
-   * set anyway, we'll drop any setgid privileges.
-   */
-  if (setregid (getgid (), getgid ())) {
+    * set anyway, we'll drop any setgid privileges.
+    */
+  if (setregid (getgid (), getgid ())) 
+  {
     perror ("setregid");
     exit (28);
   }
+  
+  //print warning
+  if (opt_tries_val || opt_log_val || opt_showpatt_val)
+  {
+    fprintf(stderr, "Enabling any of '--ct', '--wl', or " 
+      "'--sp' jeopardizes the secrecy of the private key passphrase, "
+      "especially if there is the possibility that you are being observed "
+      "or if you are on a multi-user system.");
+  }
 
-  p = -1;
-  if (argc == 2 && *argv[1] != '-') {
-    p = 0;
+  //first conditional checks for case where user simply supplies key ID 
+  if (argc == 2 && *argv[1] != '-') 
+  {
+    if(DEBUG)
+    {
+      printf("Only program name and key ID were supplied.\n");
+    }
+    profile_idx = 0;
     param = argv[1];
-  } else if (argc == 3) {
-    for (p = 0; profiles[p].option; ++p) {
-      if (strcmp(profiles[p].option, argv[1]) == 0) {
-        break;
+  }
+  //walk through each struct, doing string comparison with argv arr
+  else if (argc >= 3) 
+  {
+    //for each invocation of gpg or luks
+    for (profile_idx = 0; profiles[profile_idx].option; ++profile_idx) 
+    {
+      //for each argument passed in
+      for( int i = 0; i < argc; i++)
+      {
+        if (strcmp(profiles[profile_idx].option, argv[i]) == 0) 
+        {
+          break;
+        }
       }
     }
-    if (profiles[p].option) {
+    if (profiles[profile_idx].option) 
+    {
       param = argv[2];
-    } else {
-      p = -1;
+    } 
+    else 
+    {
+      profile_idx = -1;
     }
   }
-  if (p == -1) {
-    fprintf (stderr, "Usage: %s <key> | --gpg-key <key> | --gpg-symmetric <encrypted_file> | --luks <block_device>\n", PROGRAM);
+  if (profile_idx == -1) 
+  {
+    //fprintf (stderr, "Usage: %s <key> | --gpg-key <key> | --gpg-symmetric <encrypted_file> | --luks <block_device>\n", PROGRAM);
+    fprintf (stderr, "Usage: %s [%s] [%s] [%s] <key> | --gpg-key <key> | --gpg-symmetric <encrypted_file> | --luks <block_device>\n", PROGRAM, opt_tries_str, opt_log_str, opt_showpatt_str);
     exit (7);
   }
 
-  conf.path = profiles[p].command[0];
-  for (c = 0; profiles[p].command[c]; ++c) {
+  conf.path = profiles[profile_idx].command[0];
+  for (c = 0; profiles[profile_idx].command[c]; ++c) {
     if (c >= ARGS_MAX) {
       fprintf (stderr, "Command contains too many arguments\n(maximum is %d; "
           "you could redefine ARGS_MAX and recompile)\n", ARGS_MAX);
       exit (30);
     }
     if (c == 0) {
-      if (*profiles[p].command[c] != '/') {
+      if (*profiles[profile_idx].command[c] != '/') {
         fprintf (stderr, "Command doesn't begin with a full path\n");
         exit (31);
       }
-      conf.argv[c] = rindex (profiles[p].command[c], '/') + 1;
+      conf.argv[c] = rindex (profiles[profile_idx].command[c], '/') + 1;
       if (*conf.argv[c] == '\0') {
         fprintf (stderr, "Command contains nothing but slashes\n");
         exit (32);
       }
-    } else if (strcmp(profiles[p].command[c], "%1") == 0) {
+    } else if (strcmp(profiles[profile_idx].command[c], "%1") == 0) {
       conf.argv[c] = param;
     } else {
-      conf.argv[c] = profiles[p].command[c];
+      conf.argv[c] = profiles[profile_idx].command[c];
     }
   }
   if (c == 0) {
@@ -456,9 +539,9 @@ main (int argc, char **argv)
     exit (34);
   }
   conf.argv[c] = NULL;
-  conf.write_linefeed = profiles[p].write_linefeed;
-  conf.good_passphrase_status = profiles[p].good_passphrase_status;
-  conf.bad_passphrase_status = profiles[p].bad_passphrase_status;
+  conf.write_linefeed = profiles[profile_idx].write_linefeed;
+  conf.good_passphrase_status = profiles[profile_idx].good_passphrase_status;
+  conf.bad_passphrase_status = profiles[profile_idx].bad_passphrase_status;
 
   if (stat (conf.path, &stat_buf)) {
     if (errno & (ENOENT | ENOTDIR)) {
@@ -471,7 +554,9 @@ main (int argc, char **argv)
   }
   if (!S_ISREG(stat_buf.st_mode)
       || !(stat_buf.st_mode & (stat_buf.st_uid == getuid () ? S_IXUSR
-      : stat_buf.st_gid == getgid () ? S_IXGRP : S_IXOTH))) {
+      : stat_buf.st_gid == getgid () ? S_IXGRP : S_IXOTH))
+      ) 
+  {
     fprintf (stderr, "%s is not an executable (by me) file\n", conf.path);
     exit (6);
   }

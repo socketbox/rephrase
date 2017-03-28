@@ -1,0 +1,45 @@
+Rephrase
+
+This is the first version of a fork of Rephrase 0.2 by Phil Lanch. Mr. Lanch
+was generous enough to license his work under the GPL-3, and so this fork is
+publicly available under the same license on Github at:
+https://github.com/socketbox/rephrase
+
+For instructions regarding compiling and installing the program, please consult the original README
+(README_0.2).
+
+USAGE:
+
+The fork differs mainly in the number of (insecure) options available to the 
+user. Basic invocation:
+
+  rephrase [key | --gpg-key keyid | --gpg-symmetric <encrypted_file> \
+      | --luks <block_device>]
+
+After providing the program with a private key and encrypted target, the
+application will then prompt the user for a pattern. Please consult the
+original README for pattern syntax.
+
+Options for increasing the verbosity of Rephrase have been added to the code,
+for better or worse. These options increase the amount of information that the
+program generates regarding the process of guessing the key passphrase. As such,
+they should be chosen carefully, mindful of the fact that, given certain
+conditions, they could compromise the secrecy of any discovered/recovered
+passphrase.
+
+--ct
+      Count the number tries or guesses that are made by rephrase. This is an
+      integer shown the user at program exit.
+
+--sp
+      Show the user-supplied pattern on the command line, thus overriding the 
+      default behavior, which is to not echo the pattern.
+
+--wl
+      Write each permutation of the user-supplied pattern that is used as a 
+      guess in a log file (/tmp/rephrase-<timestamp>.log).
+
+      in an attempt
+introduced  
+
+
