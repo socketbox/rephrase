@@ -422,7 +422,7 @@ main (int argc, char **argv)
   struct secrets sec;
   struct configuration conf;
   struct stat stat_buf;
-  int profile_idx = -5;
+  int profile_idx = -1;
   int c;
   int debug = 1;
   char *param;
@@ -444,6 +444,7 @@ main (int argc, char **argv)
   {
     perror ("mlock");
     fprintf (stderr, "(%s should be installed setuid root)\n", PROGRAM);
+    exit(2); 
   } 
   
   if (setreuid (getuid (), getuid ())) 
